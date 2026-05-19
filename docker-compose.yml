@@ -1,0 +1,44 @@
+# ClearFund local stack: PostgreSQL + Spring Boot backend.
+# Flyway runs the V1-V3 migrations automatically on backend startup.
+#
+#   docker compose up --build      # start
+#   docker compose down -v         # stop and wipe the database volume
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: clearfund-db
+    environment:
+      POSTGRES_DB: clearfund
+      POSTGRES_USER: clearfund
+      POSTGRES_PASSWORD: clearfund
+    ports:
+      - "5432:5432"
+    volumes:
+      - clearfund-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The backend waits for this before connecting (see depends_on).
+      test: ["CMD-SHELL", "pg_isready -U clearfund -d clearfund"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+    container_name: clearfund-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Overrides the localhost defaults in application.yml so the container
+      # reaches the db service by its compose hostname.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/clearfund
+      SPRING_DATASOURCE_USERNAME: clearfund
+      SPRING_DATASOURCE_PASSWORD: clearfund
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+    ports:
+      - "8080:8080"
+
+volumes:
+  clearfund-pgdata:
