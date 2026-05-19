@@ -104,66 +104,85 @@ class OrderServiceImplTest {
         verify(auditService).recordTransition(any(), eq(null), eq(OrderStatus.RECEIVED), any());
     }
 
-    // -------- processOrder happy path -------- //
+    // -------- validateOrder -------- //
 
     @Test
-    void processOrder_subscriptionWithEnoughCash_reachesSettlementPendingAndPricesUnits() {
+    void validateOrder_subscriptionWithEnoughCash_movesToValidated() {
         FundOrder order = subscription(OrderStatus.RECEIVED, new BigDecimal("5000.00"));
-        when(fundOrderRepository.findByOrderRef("ORD-1")).thenReturn(Optional.of(order));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
         when(cashBalanceRepository.findByAccountIdAndCurrency(1L, "GBP"))
                 .thenReturn(Optional.of(CashBalance.builder().amount(new BigDecimal("10000.00")).build()));
         saveReturnsArg();
 
-        OrderResponse response = service.processOrder("ORD-1");
+        OrderResponse response = service.validateOrder(100L);
 
-        assertThat(response.status()).isEqualTo(OrderStatus.SETTLEMENT_PENDING);
-        assertThat(response.navUsed()).isEqualByComparingTo("12.500000");
-        // 5000 / 12.5 = 400 units
-        assertThat(response.units()).isEqualByComparingTo("400.000000");
-        // RECEIVED->VALIDATED->ROUTED->ACCEPTED->SETTLEMENT_PENDING
-        verify(auditService, times(4)).recordTransition(any(), any(), any(), any());
+        assertThat(response.status()).isEqualTo(OrderStatus.VALIDATED);
+        verify(auditService)
+                .recordTransition(any(), eq(OrderStatus.RECEIVED), eq(OrderStatus.VALIDATED), any());
     }
 
-    // -------- processOrder rejection paths -------- //
-
     @Test
-    void processOrder_subscriptionWithoutEnoughCash_isRejectedWithReason() {
+    void validateOrder_subscriptionWithoutEnoughCash_isRejectedWithReason() {
         FundOrder order = subscription(OrderStatus.RECEIVED, new BigDecimal("5000.00"));
-        when(fundOrderRepository.findByOrderRef("ORD-1")).thenReturn(Optional.of(order));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
         when(cashBalanceRepository.findByAccountIdAndCurrency(1L, "GBP"))
                 .thenReturn(Optional.of(CashBalance.builder().amount(new BigDecimal("100.00")).build()));
         saveReturnsArg();
 
-        OrderResponse response = service.processOrder("ORD-1");
+        OrderResponse response = service.validateOrder(100L);
 
         assertThat(response.status()).isEqualTo(OrderStatus.REJECTED);
         assertThat(response.rejectReason()).contains("Insufficient cash");
-        verify(auditService, times(1))
-                .recordTransition(any(), eq(OrderStatus.RECEIVED), eq(OrderStatus.REJECTED), any());
     }
 
     @Test
-    void processOrder_redemptionWithoutEnoughHoldings_isRejectedWithReason() {
+    void validateOrder_redemptionWithoutEnoughHoldings_isRejectedWithReason() {
         FundOrder order = redemption(OrderStatus.RECEIVED, new BigDecimal("50.000000"));
-        when(fundOrderRepository.findByOrderRef("ORD-2")).thenReturn(Optional.of(order));
+        when(fundOrderRepository.findById(101L)).thenReturn(Optional.of(order));
         when(holdingRepository.findByAccountIdAndFundId(1L, 10L))
                 .thenReturn(Optional.of(Holding.builder().units(new BigDecimal("10.000000")).build()));
         saveReturnsArg();
 
-        OrderResponse response = service.processOrder("ORD-2");
+        OrderResponse response = service.validateOrder(101L);
 
         assertThat(response.status()).isEqualTo(OrderStatus.REJECTED);
         assertThat(response.rejectReason()).contains("Insufficient holdings");
     }
 
     @Test
-    void processOrder_whenNotInReceived_throwsInvalidOrderState() {
+    void validateOrder_whenNotInReceived_throwsInvalidOrderState() {
         FundOrder order = subscription(OrderStatus.SETTLED, new BigDecimal("5000.00"));
-        when(fundOrderRepository.findByOrderRef("ORD-1")).thenReturn(Optional.of(order));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> service.processOrder("ORD-1"))
+        assertThatThrownBy(() -> service.validateOrder(100L))
                 .isInstanceOf(InvalidOrderStateException.class);
         verify(auditService, never()).recordTransition(any(), any(), any(), any());
+    }
+
+    // -------- route / accept -------- //
+
+    @Test
+    void routeOrder_validated_movesToRouted() {
+        FundOrder order = subscription(OrderStatus.VALIDATED, new BigDecimal("5000.00"));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
+        saveReturnsArg();
+
+        assertThat(service.routeOrder(100L).status()).isEqualTo(OrderStatus.ROUTED);
+    }
+
+    @Test
+    void acceptOrder_routed_pricesUnitsAndMovesToSettlementPending() {
+        FundOrder order = subscription(OrderStatus.ROUTED, new BigDecimal("5000.00"));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
+        saveReturnsArg();
+
+        OrderResponse response = service.acceptOrder(100L);
+
+        assertThat(response.status()).isEqualTo(OrderStatus.SETTLEMENT_PENDING);
+        assertThat(response.navUsed()).isEqualByComparingTo("12.500000");
+        assertThat(response.units()).isEqualByComparingTo("400.000000"); // 5000 / 12.5
+        // ROUTED->ACCEPTED and ACCEPTED->SETTLEMENT_PENDING
+        verify(auditService, times(2)).recordTransition(any(), any(), any(), any());
     }
 
     // -------- settleOrder -------- //
@@ -175,12 +194,12 @@ class OrderServiceImplTest {
         order.setNavUsed(new BigDecimal("12.500000"));
         CashBalance cash = CashBalance.builder().amount(new BigDecimal("10000.00")).build();
 
-        when(fundOrderRepository.findByOrderRef("ORD-1")).thenReturn(Optional.of(order));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
         when(cashBalanceRepository.findByAccountIdAndCurrency(1L, "GBP")).thenReturn(Optional.of(cash));
         when(holdingRepository.findByAccountIdAndFundId(1L, 10L)).thenReturn(Optional.empty());
         saveReturnsArg();
 
-        OrderResponse response = service.settleOrder("ORD-1");
+        OrderResponse response = service.settleOrder(100L);
 
         assertThat(response.status()).isEqualTo(OrderStatus.SETTLED);
         assertThat(cash.getAmount()).isEqualByComparingTo("5000.00");
@@ -193,10 +212,10 @@ class OrderServiceImplTest {
     @Test
     void cancelOrder_nonTerminal_setsCancelledAndAudits() {
         FundOrder order = subscription(OrderStatus.ROUTED, new BigDecimal("5000.00"));
-        when(fundOrderRepository.findByOrderRef("ORD-1")).thenReturn(Optional.of(order));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
         saveReturnsArg();
 
-        OrderResponse response = service.cancelOrder("ORD-1", "client changed mind");
+        OrderResponse response = service.cancelOrder(100L, "client changed mind");
 
         assertThat(response.status()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(response.rejectReason()).isEqualTo("client changed mind");
@@ -207,9 +226,9 @@ class OrderServiceImplTest {
     @Test
     void cancelOrder_terminalOrder_throwsInvalidOrderState() {
         FundOrder order = subscription(OrderStatus.SETTLED, new BigDecimal("5000.00"));
-        when(fundOrderRepository.findByOrderRef("ORD-1")).thenReturn(Optional.of(order));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> service.cancelOrder("ORD-1", "too late"))
+        assertThatThrownBy(() -> service.cancelOrder(100L, "too late"))
                 .isInstanceOf(InvalidOrderStateException.class);
     }
 }

@@ -3,28 +3,39 @@ package com.clearfund.service;
 import com.clearfund.dto.AuditEventResponse;
 import com.clearfund.dto.CreateOrderRequest;
 import com.clearfund.dto.OrderResponse;
+import com.clearfund.dto.PagedResponse;
+import com.clearfund.enums.OrderStatus;
+import com.clearfund.enums.OrderType;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 
+/**
+ * Each lifecycle method performs exactly one step of the state machine so
+ * the transitions can be driven (and observed) individually via the API.
+ */
 public interface OrderService {
 
-    /** Creates the order in {@code RECEIVED}. Account/fund must exist. */
     OrderResponse placeOrder(CreateOrderRequest request);
 
-    /**
-     * Drives the order forward through VALIDATED -> ROUTED -> ACCEPTED ->
-     * SETTLEMENT_PENDING. If a business rule fails the order ends in
-     * REJECTED with a stored reason (not an exception).
-     */
-    OrderResponse processOrder(String orderRef);
+    PagedResponse<OrderResponse> listOrders(OrderStatus status, OrderType type, Pageable pageable);
 
-    /** Settles a SETTLEMENT_PENDING order: moves cash and units, then SETTLED. */
-    OrderResponse settleOrder(String orderRef);
+    OrderResponse getOrder(Long id);
 
-    /** Cancels a non-terminal order and records the reason. */
-    OrderResponse cancelOrder(String orderRef, String reason);
+    /** RECEIVED -> VALIDATED, or RECEIVED -> REJECTED if a rule fails. */
+    OrderResponse validateOrder(Long id);
 
-    OrderResponse getOrder(String orderRef);
+    /** VALIDATED -> ROUTED. */
+    OrderResponse routeOrder(Long id);
 
-    List<AuditEventResponse> getAuditTrail(String orderRef);
+    /** ROUTED -> ACCEPTED -> SETTLEMENT_PENDING (prices the order at NAV). */
+    OrderResponse acceptOrder(Long id);
+
+    /** SETTLEMENT_PENDING -> SETTLED (cash and units move here). */
+    OrderResponse settleOrder(Long id);
+
+    /** Any non-terminal state -> CANCELLED. */
+    OrderResponse cancelOrder(Long id, String reason);
+
+    List<AuditEventResponse> getAuditEvents(Long id);
 }

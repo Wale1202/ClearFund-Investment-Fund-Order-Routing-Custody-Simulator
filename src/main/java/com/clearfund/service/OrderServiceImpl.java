@@ -5,12 +5,14 @@ import com.clearfund.config.SettlementProperties;
 import com.clearfund.dto.AuditEventResponse;
 import com.clearfund.dto.CreateOrderRequest;
 import com.clearfund.dto.OrderResponse;
+import com.clearfund.dto.PagedResponse;
 import com.clearfund.entity.Account;
 import com.clearfund.entity.CashBalance;
 import com.clearfund.entity.Fund;
 import com.clearfund.entity.FundOrder;
 import com.clearfund.entity.Holding;
 import com.clearfund.enums.OrderStatus;
+import com.clearfund.enums.OrderType;
 import com.clearfund.exception.BusinessRuleException;
 import com.clearfund.exception.InvalidOrderStateException;
 import com.clearfund.exception.ResourceNotFoundException;
@@ -21,6 +23,7 @@ import com.clearfund.repository.CashBalanceRepository;
 import com.clearfund.repository.FundOrderRepository;
 import com.clearfund.repository.FundRepository;
 import com.clearfund.repository.HoldingRepository;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,20 +35,22 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Core order lifecycle:
+ * Core order lifecycle. Each public lifecycle method performs exactly one
+ * step so the state machine can be driven individually via the API:
  *
  * <pre>
  * placeOrder    -> RECEIVED
- * processOrder  -> VALIDATED -> ROUTED -> ACCEPTED -> SETTLEMENT_PENDING
- *                  (or REJECTED with a reason if a business rule fails)
- * settleOrder   -> SETTLED   (cash and units actually move here)
- * cancelOrder   -> CANCELLED (any non-terminal state)
+ * validateOrder -> VALIDATED            (or REJECTED with a reason)
+ * routeOrder    -> ROUTED
+ * acceptOrder   -> ACCEPTED -> SETTLEMENT_PENDING   (NAV snapshotted here)
+ * settleOrder   -> SETTLED              (cash and units actually move here)
+ * cancelOrder   -> CANCELLED            (any non-terminal state)
  * </pre>
  *
  * <p>Design note: a missing account/fund throws (we cannot persist an order
- * with no FK), whereas a <em>well-formed</em> order that breaks a business
- * rule — insufficient cash or holdings — ends in REJECTED with a stored
- * reason, because rejection is a normal lifecycle outcome, not an error.</p>
+ * with no FK), whereas a well-formed order that breaks a business rule —
+ * insufficient cash or holdings — ends in REJECTED with a stored reason,
+ * because rejection is a normal lifecycle outcome, not an error.</p>
  */
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -86,7 +91,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     // ------------------------------------------------------------------ //
-    //  placeOrder
+    //  Create / read
     // ------------------------------------------------------------------ //
 
     @Override
@@ -122,47 +127,77 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toResponse(saved);
     }
 
-    // ------------------------------------------------------------------ //
-    //  processOrder : RECEIVED -> ... -> SETTLEMENT_PENDING (or REJECTED)
-    // ------------------------------------------------------------------ //
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<OrderResponse> listOrders(OrderStatus status, OrderType type, Pageable pageable) {
+        return PagedResponse.from(
+                fundOrderRepository.search(status, type, pageable),
+                orderMapper::toResponse);
+    }
 
     @Override
-    @Transactional
-    public OrderResponse processOrder(String orderRef) {
-        FundOrder order = loadOrder(orderRef);
-        requireStatus(order, OrderStatus.RECEIVED);
+    @Transactional(readOnly = true)
+    public OrderResponse getOrder(Long id) {
+        return orderMapper.toResponse(loadOrder(id));
+    }
 
-        // 1. Validate business rules. A failure is a rejection, not an error.
-        String rejectionReason = findRejectionReason(order);
-        if (rejectionReason != null) {
-            reject(order, rejectionReason);
-            return orderMapper.toResponse(fundOrderRepository.save(order));
-        }
-        transition(order, OrderStatus.VALIDATED, "Business validation passed");
-
-        // 2. Route to the (simulated) fund for pricing.
-        transition(order, OrderStatus.ROUTED,
-                "Routed to fund; settlement date " + order.getSettlementDate());
-
-        // 3. Accept: snapshot the NAV and compute the derived amount.
-        priceOrder(order);
-        transition(order, OrderStatus.ACCEPTED, "Accepted at NAV " + order.getNavUsed());
-
-        // 4. Hand to settlement.
-        transition(order, OrderStatus.SETTLEMENT_PENDING,
-                "Awaiting settlement on " + order.getSettlementDate());
-
-        return orderMapper.toResponse(fundOrderRepository.save(order));
+    @Override
+    @Transactional(readOnly = true)
+    public List<AuditEventResponse> getAuditEvents(Long id) {
+        FundOrder order = loadOrder(id);
+        return auditEventRepository.findByOrderRefOrderByCreatedAtAsc(order.getOrderRef()).stream()
+                .map(orderMapper::toResponse)
+                .toList();
     }
 
     // ------------------------------------------------------------------ //
-    //  settleOrder : SETTLEMENT_PENDING -> SETTLED (cash/units move here)
+    //  Lifecycle steps
     // ------------------------------------------------------------------ //
 
     @Override
     @Transactional
-    public OrderResponse settleOrder(String orderRef) {
-        FundOrder order = loadOrder(orderRef);
+    public OrderResponse validateOrder(Long id) {
+        FundOrder order = loadOrder(id);
+        requireStatus(order, OrderStatus.RECEIVED);
+
+        String rejectionReason = findRejectionReason(order);
+        if (rejectionReason != null) {
+            reject(order, rejectionReason);
+        } else {
+            transition(order, OrderStatus.VALIDATED, "Business validation passed");
+        }
+        return orderMapper.toResponse(fundOrderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse routeOrder(Long id) {
+        FundOrder order = loadOrder(id);
+        requireStatus(order, OrderStatus.VALIDATED);
+        transition(order, OrderStatus.ROUTED,
+                "Routed to fund; settlement date " + order.getSettlementDate());
+        return orderMapper.toResponse(fundOrderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse acceptOrder(Long id) {
+        FundOrder order = loadOrder(id);
+        requireStatus(order, OrderStatus.ROUTED);
+
+        priceOrder(order); // snapshot NAV, compute the derived side
+        transition(order, OrderStatus.ACCEPTED, "Accepted at NAV " + order.getNavUsed());
+        // No separate endpoint moves the order into the settlement queue,
+        // so acceptance places it there directly.
+        transition(order, OrderStatus.SETTLEMENT_PENDING,
+                "Awaiting settlement on " + order.getSettlementDate());
+        return orderMapper.toResponse(fundOrderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse settleOrder(Long id) {
+        FundOrder order = loadOrder(id);
         requireStatus(order, OrderStatus.SETTLEMENT_PENDING);
 
         Account account = order.getAccount();
@@ -196,40 +231,18 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toResponse(fundOrderRepository.save(order));
     }
 
-    // ------------------------------------------------------------------ //
-    //  cancelOrder
-    // ------------------------------------------------------------------ //
-
     @Override
     @Transactional
-    public OrderResponse cancelOrder(String orderRef, String reason) {
-        FundOrder order = loadOrder(orderRef);
+    public OrderResponse cancelOrder(Long id, String reason) {
+        FundOrder order = loadOrder(id);
         if (order.getStatus().isTerminal()) {
-            throw new InvalidOrderStateException(orderRef, order.getStatus(), OrderStatus.CANCELLED);
+            throw new InvalidOrderStateException(order.getOrderRef(),
+                    order.getStatus(), OrderStatus.CANCELLED);
         }
-        // Reuse rejectReason as the terminal-reason column for cancellations too.
+        // Reuse rejectReason as the terminal-reason column for cancellations.
         order.setRejectReason(reason);
         transition(order, OrderStatus.CANCELLED, "Cancelled: " + reason);
         return orderMapper.toResponse(fundOrderRepository.save(order));
-    }
-
-    // ------------------------------------------------------------------ //
-    //  Reads
-    // ------------------------------------------------------------------ //
-
-    @Override
-    @Transactional(readOnly = true)
-    public OrderResponse getOrder(String orderRef) {
-        return orderMapper.toResponse(loadOrder(orderRef));
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<AuditEventResponse> getAuditTrail(String orderRef) {
-        loadOrder(orderRef); // 404 if the order itself is unknown
-        return auditEventRepository.findByOrderRefOrderByCreatedAtAsc(orderRef).stream()
-                .map(orderMapper::toResponse)
-                .toList();
     }
 
     // ------------------------------------------------------------------ //
@@ -268,8 +281,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * Snapshots the fund NAV onto the order and computes the side that the
-     * client did not supply: units for a subscription, cash for a redemption.
+     * Snapshots the fund NAV onto the order and computes the side the client
+     * did not supply: units for a subscription, cash for a redemption.
      */
     private void priceOrder(FundOrder order) {
         BigDecimal nav = order.getFund().getNavPerUnit();
@@ -303,9 +316,9 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private FundOrder loadOrder(String orderRef) {
-        return fundOrderRepository.findByOrderRef(orderRef)
-                .orElseThrow(() -> ResourceNotFoundException.of("Order", orderRef));
+    private FundOrder loadOrder(Long id) {
+        return fundOrderRepository.findById(id)
+                .orElseThrow(() -> ResourceNotFoundException.of("Order", String.valueOf(id)));
     }
 
     private CashBalance cashBalance(Account account, String currency) {
