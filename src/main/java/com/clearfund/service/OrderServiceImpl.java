@@ -69,6 +69,7 @@ public class OrderServiceImpl implements OrderService {
     private final AuditService auditService;
     private final OrderMapper orderMapper;
     private final SettlementProperties settlementProperties;
+    private final SettlementService settlementService;
 
     public OrderServiceImpl(AccountRepository accountRepository,
                             FundRepository fundRepository,
@@ -78,7 +79,8 @@ public class OrderServiceImpl implements OrderService {
                             HoldingRepository holdingRepository,
                             AuditService auditService,
                             OrderMapper orderMapper,
-                            SettlementProperties settlementProperties) {
+                            SettlementProperties settlementProperties,
+                            SettlementService settlementService) {
         this.accountRepository = accountRepository;
         this.fundRepository = fundRepository;
         this.fundOrderRepository = fundOrderRepository;
@@ -87,6 +89,7 @@ public class OrderServiceImpl implements OrderService {
         this.holdingRepository = holdingRepository;
         this.auditService = auditService;
         this.orderMapper = orderMapper;
+        this.settlementService = settlementService;
         this.settlementProperties = settlementProperties;
     }
 
@@ -188,47 +191,20 @@ public class OrderServiceImpl implements OrderService {
         priceOrder(order); // snapshot NAV, compute the derived side
         transition(order, OrderStatus.ACCEPTED, "Accepted at NAV " + order.getNavUsed());
         // No separate endpoint moves the order into the settlement queue,
-        // so acceptance places it there directly.
+        // so acceptance places it there directly and raises the instruction.
         transition(order, OrderStatus.SETTLEMENT_PENDING,
                 "Awaiting settlement on " + order.getSettlementDate());
-        return orderMapper.toResponse(fundOrderRepository.save(order));
+        FundOrder saved = fundOrderRepository.save(order);
+        settlementService.createInstruction(saved);
+        return orderMapper.toResponse(saved);
     }
 
     @Override
     @Transactional
     public OrderResponse settleOrder(Long id) {
-        FundOrder order = loadOrder(id);
-        requireStatus(order, OrderStatus.SETTLEMENT_PENDING);
-
-        Account account = order.getAccount();
-        Fund fund = order.getFund();
-
-        switch (order.getOrderType()) {
-            case SUBSCRIPTION -> {
-                // Cash leaves the account; units arrive in custody.
-                CashBalance cash = cashBalance(account, fund.getCurrency());
-                cash.setAmount(cash.getAmount().subtract(order.getCashAmount()));
-                cashBalanceRepository.save(cash);
-
-                Holding holding = holdingOrNew(account, fund);
-                holding.setUnits(holding.getUnits().add(order.getUnits()));
-                holdingRepository.save(holding);
-            }
-            case REDEMPTION -> {
-                // Units leave custody; cash arrives in the account.
-                Holding holding = holdingOrNew(account, fund);
-                holding.setUnits(holding.getUnits().subtract(order.getUnits()));
-                holdingRepository.save(holding);
-
-                CashBalance cash = cashBalanceOrNew(account, fund.getCurrency());
-                cash.setAmount(cash.getAmount().add(order.getCashAmount()));
-                cashBalanceRepository.save(cash);
-            }
-        }
-
-        transition(order, OrderStatus.SETTLED,
-                "Settled %s units @ NAV %s".formatted(order.getUnits(), order.getNavUsed()));
-        return orderMapper.toResponse(fundOrderRepository.save(order));
+        // Settlement (cash/unit movement, instruction + order transition) is
+        // owned by SettlementService so it stays in one transactional unit.
+        return orderMapper.toResponse(settlementService.settle(id));
     }
 
     @Override
@@ -319,24 +295,6 @@ public class OrderServiceImpl implements OrderService {
     private FundOrder loadOrder(Long id) {
         return fundOrderRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Order", String.valueOf(id)));
-    }
-
-    private CashBalance cashBalance(Account account, String currency) {
-        return cashBalanceRepository.findByAccountIdAndCurrency(account.getId(), currency)
-                .orElseThrow(() -> new BusinessRuleException(
-                        "No %s cash balance for account %s".formatted(currency, account.getAccountRef())));
-    }
-
-    private CashBalance cashBalanceOrNew(Account account, String currency) {
-        return cashBalanceRepository.findByAccountIdAndCurrency(account.getId(), currency)
-                .orElseGet(() -> CashBalance.builder()
-                        .account(account).currency(currency).amount(BigDecimal.ZERO).build());
-    }
-
-    private Holding holdingOrNew(Account account, Fund fund) {
-        return holdingRepository.findByAccountIdAndFundId(account.getId(), fund.getId())
-                .orElseGet(() -> Holding.builder()
-                        .account(account).fund(fund).units(BigDecimal.ZERO).build());
     }
 
     private String generateOrderRef(LocalDate tradeDate) {

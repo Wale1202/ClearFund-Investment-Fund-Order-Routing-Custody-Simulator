@@ -47,6 +47,7 @@ class OrderServiceImplTest {
     @Mock private CashBalanceRepository cashBalanceRepository;
     @Mock private HoldingRepository holdingRepository;
     @Mock private AuditService auditService;
+    @Mock private SettlementService settlementService;
 
     private final OrderMapper orderMapper = new OrderMapper();
     private final SettlementProperties settlementProperties = new SettlementProperties(2);
@@ -57,7 +58,7 @@ class OrderServiceImplTest {
     void setUp() {
         service = new OrderServiceImpl(accountRepository, fundRepository, fundOrderRepository,
                 auditEventRepository, cashBalanceRepository, holdingRepository,
-                auditService, orderMapper, settlementProperties);
+                auditService, orderMapper, settlementProperties, settlementService);
     }
 
     // -------- fixtures -------- //
@@ -185,26 +186,29 @@ class OrderServiceImplTest {
         verify(auditService, times(2)).recordTransition(any(), any(), any(), any());
     }
 
-    // -------- settleOrder -------- //
+    // -------- settleOrder (delegates to SettlementService) -------- //
 
     @Test
-    void settleOrder_subscription_debitsCashIncreasesHoldingAndSettles() {
-        FundOrder order = subscription(OrderStatus.SETTLEMENT_PENDING, new BigDecimal("5000.00"));
-        order.setUnits(new BigDecimal("400.000000"));
-        order.setNavUsed(new BigDecimal("12.500000"));
-        CashBalance cash = CashBalance.builder().amount(new BigDecimal("10000.00")).build();
-
-        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
-        when(cashBalanceRepository.findByAccountIdAndCurrency(1L, "GBP")).thenReturn(Optional.of(cash));
-        when(holdingRepository.findByAccountIdAndFundId(1L, 10L)).thenReturn(Optional.empty());
-        saveReturnsArg();
+    void settleOrder_delegatesToSettlementServiceAndMapsResult() {
+        FundOrder settled = subscription(OrderStatus.SETTLED, new BigDecimal("5000.00"));
+        settled.setUnits(new BigDecimal("400.000000"));
+        when(settlementService.settle(100L)).thenReturn(settled);
 
         OrderResponse response = service.settleOrder(100L);
 
         assertThat(response.status()).isEqualTo(OrderStatus.SETTLED);
-        assertThat(cash.getAmount()).isEqualByComparingTo("5000.00");
-        verify(holdingRepository).save(any(Holding.class));
-        verify(cashBalanceRepository).save(cash);
+        verify(settlementService).settle(100L);
+    }
+
+    @Test
+    void acceptOrder_raisesSettlementInstruction() {
+        FundOrder order = subscription(OrderStatus.ROUTED, new BigDecimal("5000.00"));
+        when(fundOrderRepository.findById(100L)).thenReturn(Optional.of(order));
+        saveReturnsArg();
+
+        service.acceptOrder(100L);
+
+        verify(settlementService).createInstruction(any(FundOrder.class));
     }
 
     // -------- cancelOrder -------- //
