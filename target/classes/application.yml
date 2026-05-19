@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: clearfund
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/clearfund
+    username: clearfund
+    password: clearfund
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      # dev convenience only. For Oracle/prod this should be 'validate'
+      # with Flyway-managed schema migrations instead.
+      ddl-auto: update
+    show-sql: true
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.clearfund: DEBUG
+    org.hibernate.SQL: DEBUG
+
+clearfund:
+  settlement:
+    # Trade date + N business-day(s) settlement simulation (T+2).
+    offset-days: 2
