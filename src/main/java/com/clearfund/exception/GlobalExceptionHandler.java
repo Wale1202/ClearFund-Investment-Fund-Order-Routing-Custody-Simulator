@@ -38,6 +38,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, "BUSINESS_RULE_VIOLATION", List.of(ex.getMessage()), request);
     }
 
+    @ExceptionHandler(SwiftParseException.class)
+    public ResponseEntity<ApiError> handleSwiftParse(SwiftParseException ex,
+                                                     HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, "SWIFT_PARSE_ERROR",
+                List.of(ex.getMessage()), request);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex,
                                                      HttpServletRequest request) {
