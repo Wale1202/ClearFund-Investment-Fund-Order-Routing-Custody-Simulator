@@ -21,7 +21,7 @@ import java.time.Instant;
  * (not a JPA relationship) so the trail is immutable and decoupled.
  */
 @Entity
-@Table(name = "audit_event")
+@Table(name = "audit_events")
 @Getter
 @Setter
 @NoArgsConstructor

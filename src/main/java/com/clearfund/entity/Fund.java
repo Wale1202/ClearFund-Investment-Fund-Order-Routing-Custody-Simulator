@@ -20,7 +20,7 @@ import java.math.BigDecimal;
  * the simulator) and is the only value used in subscription/redemption math.
  */
 @Entity
-@Table(name = "fund")
+@Table(name = "funds")
 @Getter
 @Setter
 @NoArgsConstructor

@@ -35,7 +35,7 @@ import java.time.LocalDate;
  * Oracle (and SQL in general).</p>
  */
 @Entity
-@Table(name = "fund_order")
+@Table(name = "fund_orders")
 @Getter
 @Setter
 @NoArgsConstructor

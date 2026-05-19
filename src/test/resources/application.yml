@@ -4,6 +4,10 @@ spring:
     username: sa
     password: ""
     driver-class-name: org.h2.Driver
+  # The PostgreSQL/Oracle migrations don't target H2, so slice tests build
+  # the schema from the entities instead of running Flyway.
+  flyway:
+    enabled: false
   jpa:
     hibernate:
       ddl-auto: create-drop

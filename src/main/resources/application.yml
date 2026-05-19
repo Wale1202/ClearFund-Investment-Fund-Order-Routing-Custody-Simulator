@@ -8,11 +8,15 @@ spring:
     password: clearfund
     driver-class-name: org.postgresql.Driver
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
   jpa:
     hibernate:
-      # dev convenience only. For Oracle/prod this should be 'validate'
-      # with Flyway-managed schema migrations instead.
-      ddl-auto: update
+      # Flyway owns the schema; Hibernate only verifies the entity mappings
+      # match the migrated tables.
+      ddl-auto: validate
     show-sql: true
     open-in-view: false
     properties:

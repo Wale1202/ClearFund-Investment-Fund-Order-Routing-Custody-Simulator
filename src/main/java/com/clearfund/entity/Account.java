@@ -17,7 +17,7 @@ import lombok.Setter;
  * An investor account that can place orders, hold cash and hold fund units.
  */
 @Entity
-@Table(name = "account")
+@Table(name = "accounts")
 @Getter
 @Setter
 @NoArgsConstructor

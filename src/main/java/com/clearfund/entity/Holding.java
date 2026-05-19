@@ -26,7 +26,7 @@ import java.math.BigDecimal;
  */
 @Entity
 @Table(
-        name = "holding",
+        name = "holdings",
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_holding_account_fund",
                 columnNames = {"account_id", "fund_id"}))
