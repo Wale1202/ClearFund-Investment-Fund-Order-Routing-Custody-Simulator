@@ -3,34 +3,38 @@ package com.clearfund.enums;
 import java.util.Set;
 
 /**
- * Order lifecycle states. Allowed transitions are encoded here so the
- * service layer has a single source of truth for the state machine.
+ * Order lifecycle states and the legal transitions between them.
  *
  * <pre>
- * RECEIVED -> VALIDATED -> ROUTED -> EXECUTED -> SETTLED
- *      \           \          \          \
- *       REJECTED    REJECTED   CANCELLED   FAILED
+ * RECEIVED -> VALIDATED -> ROUTED -> ACCEPTED -> SETTLEMENT_PENDING -> SETTLED
+ *     \           \          \
+ *      \-----------+----------+--------> REJECTED   (with a stored reason)
+ *      \-----------+----------+--------> CANCELLED  (caller requested)
  * </pre>
+ *
+ * Keeping the allowed transitions on the enum gives the service layer a
+ * single source of truth for the state machine.
  */
 public enum OrderStatus {
 
     RECEIVED,
     VALIDATED,
     ROUTED,
-    EXECUTED,
+    ACCEPTED,
+    SETTLEMENT_PENDING,
     SETTLED,
     REJECTED,
-    CANCELLED,
-    FAILED;
+    CANCELLED;
 
     private Set<OrderStatus> nextStates = Set.of();
 
     static {
-        RECEIVED.nextStates = Set.of(VALIDATED, REJECTED);
-        VALIDATED.nextStates = Set.of(ROUTED, REJECTED);
-        ROUTED.nextStates = Set.of(EXECUTED, CANCELLED);
-        EXECUTED.nextStates = Set.of(SETTLED, FAILED);
-        // SETTLED, REJECTED, CANCELLED, FAILED are terminal.
+        RECEIVED.nextStates           = Set.of(VALIDATED, REJECTED, CANCELLED);
+        VALIDATED.nextStates          = Set.of(ROUTED, REJECTED, CANCELLED);
+        ROUTED.nextStates             = Set.of(ACCEPTED, REJECTED, CANCELLED);
+        ACCEPTED.nextStates           = Set.of(SETTLEMENT_PENDING, CANCELLED);
+        SETTLEMENT_PENDING.nextStates = Set.of(SETTLED, CANCELLED);
+        // SETTLED, REJECTED, CANCELLED are terminal.
     }
 
     public boolean canTransitionTo(OrderStatus target) {
