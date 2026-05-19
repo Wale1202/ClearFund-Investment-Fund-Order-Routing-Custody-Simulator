@@ -65,7 +65,7 @@ public class FundOrder extends Auditable {
     private OrderType orderType;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 16)
+    @Column(name = "status", nullable = false, length = 20)
     private OrderStatus status;
 
     @Column(name = "cash_amount", precision = 18, scale = 2)

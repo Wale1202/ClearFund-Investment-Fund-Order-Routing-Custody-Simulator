@@ -1,3 +1,8 @@
+/Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/audit/AuditServiceTest.java
+/Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/controller/OrderControllerTest.java
+/Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/controller/SwiftMessageControllerTest.java
+/Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/enums/OrderStatusTest.java
+/Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/integration/OrderLifecycleIntegrationTest.java
 /Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/service/OrderServiceImplTest.java
 /Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/service/SettlementServiceImplTest.java
 /Users/adewalefagbodun/Documents/PROGRAMMING PROJECTS/ClearFund-Investment-Fund-Order-Routing-Custody-Simulator/src/test/java/com/clearfund/service/SwiftMessageParserTest.java

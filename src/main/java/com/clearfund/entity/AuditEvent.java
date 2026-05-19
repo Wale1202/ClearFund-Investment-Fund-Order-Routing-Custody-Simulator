@@ -41,10 +41,10 @@ public class AuditEvent {
     @Column(name = "order_ref", nullable = false, length = 24)
     private String orderRef;
 
-    @Column(name = "from_status", length = 16)
+    @Column(name = "from_status", length = 20)
     private String fromStatus;
 
-    @Column(name = "to_status", nullable = false, length = 16)
+    @Column(name = "to_status", nullable = false, length = 20)
     private String toStatus;
 
     @Column(name = "detail", length = 400)

@@ -93,7 +93,7 @@ CREATE TABLE fund_orders (
     account_id      BIGINT         NOT NULL,
     fund_id         BIGINT         NOT NULL,
     order_type      VARCHAR(12)    NOT NULL,
-    status          VARCHAR(16)    NOT NULL,
+    status          VARCHAR(20)    NOT NULL,  -- longest value: SETTLEMENT_PENDING (18)
     cash_amount     NUMERIC(18, 2),
     units           NUMERIC(18, 6),
     nav_used        NUMERIC(18, 6),
@@ -116,8 +116,8 @@ CREATE TABLE audit_events (
     audit_id    BIGINT       NOT NULL,
     order_id    BIGINT       NOT NULL,
     order_ref   VARCHAR(24)  NOT NULL,
-    from_status VARCHAR(16),
-    to_status   VARCHAR(16)  NOT NULL,
+    from_status VARCHAR(20),
+    to_status   VARCHAR(20)  NOT NULL,  -- longest value: SETTLEMENT_PENDING (18)
     detail      VARCHAR(400),
     created_at  TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_audit_events PRIMARY KEY (audit_id)
@@ -130,7 +130,7 @@ CREATE TABLE settlement_instructions (
     settlement_instruction_id BIGINT         NOT NULL,
     order_id                  BIGINT         NOT NULL,
     instruction_ref           VARCHAR(24)    NOT NULL,
-    status                    VARCHAR(16)    NOT NULL,
+    status                    VARCHAR(20)    NOT NULL,
     settlement_date           DATE           NOT NULL,
     amount                    NUMERIC(18, 2),
     currency                  VARCHAR(3),

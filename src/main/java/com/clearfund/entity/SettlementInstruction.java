@@ -47,7 +47,7 @@ public class SettlementInstruction extends Auditable {
     private String instructionRef;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 16)
+    @Column(name = "status", nullable = false, length = 20)
     private SettlementStatus status;
 
     @Column(name = "settlement_date", nullable = false)
